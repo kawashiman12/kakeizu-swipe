@@ -5,10 +5,9 @@ import { useSearchParams, useRouter } from "next/navigation";
 import { Suspense } from "react";
 import Link from "next/link";
 import { useTree } from "@/hooks/useTree";
-import { SwipeCard } from "@/components/SwipeCard";
 import { PersonForm } from "@/components/PersonForm";
 import { RelationshipModal } from "@/components/RelationshipModal";
-import { MiniTree } from "@/components/MiniTree";
+import { FamilyTree } from "@/components/FamilyTree";
 import { DEMO_TREE } from "@/lib/demo";
 import type { Person } from "@/types/tree";
 
@@ -18,25 +17,29 @@ function EditorContent() {
   const {
     tree,
     loaded,
+    setFamilyName,
     addPerson,
+    updatePerson,
+    removePerson,
     addRelationship,
+    removeRelationship,
     undo,
     canUndo,
     resetTree,
     replaceTree,
   } = useTree();
 
-  const [mode, setMode] = useState<"input" | "review">("input");
-  const [skippedIds, setSkippedIds] = useState<string[]>([]);
-  const [reviewIndex, setReviewIndex] = useState(0);
+  const [mode, setMode] = useState<"add" | "edit">("add");
+  const [editPersonId, setEditPersonId] = useState<string | null>(null);
   const [relationModalOpen, setRelationModalOpen] = useState(false);
-  const [currentEditPerson, setCurrentEditPerson] = useState<Person | null>(
-    null,
-  );
+  const [relationModalTarget, setRelationModalTarget] = useState<Person | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [formKey, setFormKey] = useState(0);
 
-  const formData = useRef<{ name: string; birthYear?: number; memo?: string }>({
+  const formData = useRef<Omit<Person, "id">>({
     name: "",
+    gender: "male",
+    isDeceased: false,
   });
 
   useEffect(() => {
@@ -48,7 +51,6 @@ function EditorContent() {
       router.replace("/editor");
     } else if (isDemo) {
       replaceTree(DEMO_TREE);
-      setMode("review");
       router.replace("/editor");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -56,92 +58,79 @@ function EditorContent() {
 
   const showToast = useCallback((msg: string) => {
     setToast(msg);
-    setTimeout(() => setToast(null), 1500);
+    setTimeout(() => setToast(null), 2000);
   }, []);
 
-  function handleSwipe(direction: "right" | "left" | "up") {
-    if (mode === "input") {
-      handleInputSwipe(direction);
-    } else {
-      handleReviewSwipe(direction);
+  const editPerson = tree.persons.find((p) => p.id === editPersonId) ?? null;
+
+  function handleSave() {
+    const d = formData.current;
+    if (!d.name.trim()) {
+      showToast("名前を入力してください");
+      return;
     }
+    const person = addPerson({ ...d, name: d.name.trim() });
+    formData.current = { name: "", gender: "male", isDeceased: false };
+    setFormKey((k) => k + 1);
+    showToast(`${person.name} を追加しました`);
   }
 
-  function handleInputSwipe(direction: "right" | "left" | "up") {
-    const { name, birthYear, memo } = formData.current;
-
-    if (direction === "right") {
-      if (!name.trim()) {
-        showToast("名前を入力してください");
-        return;
-      }
-      const person = addPerson({
-        name: name.trim(),
-        birthYear,
-        memo,
-      });
-      formData.current = { name: "" };
-      showToast(`${person.name} を追加しました`);
-      setCurrentEditPerson(person);
-    } else if (direction === "left") {
-      formData.current = { name: "" };
-      showToast("スキップしました");
-    } else if (direction === "up") {
-      if (!name.trim()) {
-        showToast("先に名前を入力してください");
-        return;
-      }
-      const person = addPerson({
-        name: name.trim(),
-        birthYear,
-        memo,
-      });
-      formData.current = { name: "" };
-      setCurrentEditPerson(person);
-      setRelationModalOpen(true);
+  function handleSaveAndRelation() {
+    const d = formData.current;
+    if (!d.name.trim()) {
+      showToast("先に名前を入力してください");
+      return;
     }
+    const person = addPerson({ ...d, name: d.name.trim() });
+    formData.current = { name: "", gender: "male", isDeceased: false };
+    setFormKey((k) => k + 1);
+    setRelationModalTarget(person);
+    setRelationModalOpen(true);
   }
 
-  function handleReviewSwipe(direction: "right" | "left" | "up") {
-    const reviewPersons = getReviewPersons();
-    const person = reviewPersons[reviewIndex];
-    if (!person) return;
-
-    if (direction === "right") {
-      showToast(`${person.name} を確認しました`);
-      setReviewIndex((i) => Math.min(i + 1, reviewPersons.length));
-    } else if (direction === "left") {
-      setSkippedIds((prev) => [...prev, person.id]);
-      showToast("後で確認します");
-      setReviewIndex((i) => Math.min(i + 1, reviewPersons.length));
-    } else if (direction === "up") {
-      setCurrentEditPerson(person);
-      setRelationModalOpen(true);
+  function handleUpdatePerson() {
+    if (!editPersonId) return;
+    const d = formData.current;
+    if (!d.name.trim()) {
+      showToast("名前を入力してください");
+      return;
     }
+    updatePerson(editPersonId, { ...d, name: d.name.trim() });
+    showToast("更新しました");
   }
 
-  function getReviewPersons() {
-    return tree.persons.filter((p) => !skippedIds.includes(p.id));
-  }
-
-  function handleAddRelation(type: "parent" | "spouse", targetId: string) {
-    if (!currentEditPerson) return;
-    addRelationship(type, currentEditPerson.id, targetId);
-    showToast(
-      `${type === "parent" ? "親子" : "配偶"}関係を追加しました`,
-    );
-    setRelationModalOpen(false);
+  function handleDeletePerson() {
+    if (!editPersonId || !editPerson) return;
+    if (!window.confirm(`${editPerson.name} を削除しますか？関連する関係もすべて削除されます。`)) return;
+    const name = editPerson.name;
+    removePerson(editPersonId);
+    setEditPersonId(null);
+    setMode("add");
+    showToast(`${name} を削除しました`);
   }
 
   function handleTreePersonTap(personId: string) {
-    if (mode === "review") {
-      const reviewPersons = getReviewPersons();
-      const idx = reviewPersons.findIndex((p) => p.id === personId);
-      if (idx !== -1) setReviewIndex(idx);
-    }
-    const person = tree.persons.find((p) => p.id === personId);
-    if (person) setCurrentEditPerson(person);
+    setEditPersonId(personId);
+    setMode("edit");
+    setFormKey((k) => k + 1);
   }
+
+  function handleAddRelation(type: "parent" | "spouse", fromId: string, toId: string) {
+    addRelationship(type, fromId, toId);
+    showToast(`${type === "parent" ? "親子" : "配偶"}関係を追加しました`);
+    setRelationModalOpen(false);
+  }
+
+  function handleRemoveRelation(relId: string) {
+    removeRelationship(relId);
+    showToast("関係を削除しました");
+  }
+
+  const editPersonRelationships = editPerson
+    ? tree.relationships.filter(
+        (r) => r.fromId === editPerson.id || r.toId === editPerson.id,
+      )
+    : [];
 
   if (!loaded) {
     return (
@@ -151,153 +140,160 @@ function EditorContent() {
     );
   }
 
-  const reviewPersons = getReviewPersons();
-  const currentReviewPerson = reviewPersons[reviewIndex] ?? null;
-  const isFinished = mode === "review" && reviewIndex >= reviewPersons.length;
-
   return (
     <div className="flex h-full flex-col">
       {/* Header */}
-      <header className="flex items-center justify-between px-4 pb-2 pt-4">
-        <Link
-          href="/"
-          className="text-sm text-[var(--color-text-dim)] active:opacity-70"
-        >
-          ← 戻る
-        </Link>
+      <header className="flex items-center justify-between px-4 pb-1 pt-3">
+        <Link href="/" className="text-sm text-[var(--color-text-dim)]">← 戻る</Link>
+        <input
+          type="text"
+          value={tree.familyName ?? ""}
+          onChange={(e) => setFamilyName(e.target.value)}
+          placeholder="〇〇家"
+          className="w-20 rounded-lg bg-[var(--color-card)] px-2 py-1 text-center text-sm font-bold outline-none"
+        />
         <div className="flex gap-2">
+          <Link href="/tree" className="rounded-lg bg-[var(--color-card)] px-3 py-1.5 text-sm font-medium">🌳</Link>
           <button
-            onClick={() => {
-              setMode(mode === "input" ? "review" : "input");
-              setReviewIndex(0);
-            }}
-            className="rounded-lg bg-[var(--color-card)] px-3 py-1.5 text-sm font-medium"
+            onClick={() => { setMode("add"); setEditPersonId(null); setFormKey((k) => k + 1); }}
+            className={`rounded-lg px-3 py-1.5 text-sm font-medium ${mode === "add" ? "bg-[var(--color-primary)]" : "bg-[var(--color-card)]"}`}
           >
-            {mode === "input" ? "一覧" : "追加"}
+            + 追加
           </button>
-          <button
-            onClick={undo}
-            disabled={!canUndo}
-            className="rounded-lg bg-[var(--color-card)] px-3 py-1.5 text-sm font-medium disabled:opacity-30"
-          >
-            ↩ 戻す
+          <button onClick={undo} disabled={!canUndo} className="rounded-lg bg-[var(--color-card)] px-3 py-1.5 text-sm font-medium disabled:opacity-30">
+            ↩
           </button>
         </div>
       </header>
 
-      {/* Swipe hints */}
-      <div className="flex justify-center gap-4 px-4 pb-2 text-xs text-[var(--color-text-dim)]">
-        <span>← スキップ</span>
-        <span>↑ 関係追加</span>
-        <span>保存 →</span>
-      </div>
-
-      {/* Card area */}
-      <div className="relative flex-1 px-4">
-        {mode === "input" ? (
-          <SwipeCard key={`input-${tree.persons.length}`} onSwipe={handleSwipe}>
-            <h2 className="mb-4 text-center text-lg font-bold">
-              新しい人物を追加
-            </h2>
-            <PersonForm
-              onChange={(data) => {
-                formData.current = data;
-              }}
-            />
-            <p className="mt-4 text-center text-xs text-[var(--color-text-dim)]">
-              {tree.persons.length}人登録済み
-            </p>
-          </SwipeCard>
-        ) : isFinished ? (
-          <div className="flex h-full flex-col items-center justify-center gap-4">
-            <div className="text-4xl">🎉</div>
-            <p className="text-lg font-bold">全員確認しました！</p>
-            <div className="flex gap-3">
-              <button
-                onClick={() => setMode("input")}
-                className="rounded-xl bg-[var(--color-primary)] px-6 py-3 font-medium"
-              >
-                人物を追加
-              </button>
-              {skippedIds.length > 0 && (
-                <button
-                  onClick={() => {
-                    setSkippedIds([]);
-                    setReviewIndex(0);
-                  }}
-                  className="rounded-xl border-2 border-[var(--color-text-dim)] px-6 py-3 font-medium"
-                >
-                  スキップした人を確認
-                </button>
-              )}
-            </div>
-          </div>
-        ) : currentReviewPerson ? (
-          <SwipeCard
-            key={`review-${currentReviewPerson.id}-${reviewIndex}`}
-            onSwipe={handleSwipe}
-          >
-            <div className="text-center">
-              <div className="mb-2 text-4xl">👤</div>
-              <h2 className="text-xl font-bold">{currentReviewPerson.name}</h2>
-              {currentReviewPerson.birthYear && (
-                <p className="text-[var(--color-text-dim)]">
-                  {currentReviewPerson.birthYear}年生まれ
-                </p>
-              )}
-              {currentReviewPerson.memo && (
-                <p className="mt-2 rounded-lg bg-[var(--color-bg)] px-3 py-2 text-sm">
-                  {currentReviewPerson.memo}
-                </p>
-              )}
-              <div className="mt-4 space-y-1 text-sm text-[var(--color-text-dim)]">
-                {tree.relationships
-                  .filter(
-                    (r) =>
-                      r.fromId === currentReviewPerson.id ||
-                      r.toId === currentReviewPerson.id,
-                  )
-                  .map((r) => {
-                    const otherId =
-                      r.fromId === currentReviewPerson.id ? r.toId : r.fromId;
-                    const other = tree.persons.find((p) => p.id === otherId);
-                    const label =
-                      r.type === "spouse"
-                        ? "💑 配偶者"
-                        : r.fromId === currentReviewPerson.id
-                          ? "👶 子"
-                          : "👨 親";
-                    return (
-                      <div key={r.id}>
-                        {label}: {other?.name ?? "不明"}
-                      </div>
-                    );
-                  })}
-              </div>
-              <p className="mt-4 text-xs text-[var(--color-text-dim)]">
-                {reviewIndex + 1} / {reviewPersons.length}
+      {/* Main */}
+      <div className="flex-1 overflow-y-auto px-4 pb-2">
+        {mode === "add" ? (
+          /* ===== ADD MODE ===== */
+          <div className="mx-auto max-w-md">
+            <div className="rounded-2xl bg-[var(--color-card)] p-5 shadow-xl">
+              <h2 className="mb-3 text-center font-bold">新しい人物を追加</h2>
+              <PersonForm
+                key={formKey}
+                onChange={(data) => { formData.current = data; }}
+              />
+              <p className="mt-2 text-center text-xs text-[var(--color-text-dim)]">
+                {tree.persons.length}人登録済み
               </p>
             </div>
-          </SwipeCard>
+            <div className="mt-3 grid grid-cols-3 gap-2">
+              <button
+                onClick={() => { formData.current = { name: "", gender: "male", isDeceased: false }; setFormKey((k) => k + 1); }}
+                className="rounded-xl border-2 border-[var(--color-danger)]/40 py-3 text-sm font-medium text-[var(--color-danger)] active:scale-95"
+              >
+                ✕ クリア
+              </button>
+              <button
+                onClick={handleSaveAndRelation}
+                className="rounded-xl border-2 border-[var(--color-warning)]/40 py-3 text-sm font-medium text-[var(--color-warning)] active:scale-95"
+              >
+                保存+関係
+              </button>
+              <button
+                onClick={handleSave}
+                className="rounded-xl bg-[var(--color-success)] py-3 text-sm font-bold text-black active:scale-95"
+              >
+                ✓ 保存
+              </button>
+            </div>
+          </div>
+        ) : editPerson ? (
+          /* ===== EDIT MODE ===== */
+          <div className="mx-auto max-w-md">
+            <div className="rounded-2xl bg-[var(--color-card)] p-5 shadow-xl">
+              <h2 className="mb-3 text-center font-bold">人物を編集</h2>
+              <PersonForm
+                key={formKey}
+                initial={{
+                  name: editPerson.name,
+                  gender: editPerson.gender,
+                  birthYear: editPerson.birthYear,
+                  deathYear: editPerson.deathYear,
+                  isDeceased: editPerson.isDeceased,
+                  memo: editPerson.memo,
+                }}
+                onChange={(data) => { formData.current = data; }}
+              />
+
+              {/* Existing relationships */}
+              {editPersonRelationships.length > 0 && (
+                <div className="mt-4">
+                  <h3 className="mb-2 text-xs font-bold text-[var(--color-text-dim)]">関係一覧</h3>
+                  <div className="space-y-1">
+                    {editPersonRelationships.map((r) => {
+                      const otherId = r.fromId === editPerson.id ? r.toId : r.fromId;
+                      const other = tree.persons.find((p) => p.id === otherId);
+                      let label: string;
+                      if (r.type === "spouse") {
+                        label = r.divorced ? "💔 元配偶者" : "💑 配偶者";
+                      } else if (r.fromId === editPerson.id) {
+                        label = "👶 子";
+                      } else {
+                        label = "👨 親";
+                      }
+                      return (
+                        <div key={r.id} className="flex items-center justify-between rounded-lg bg-[var(--color-bg)] px-3 py-2 text-sm">
+                          <span>{label}: {other?.name ?? "不明"}</span>
+                          <button
+                            onClick={() => handleRemoveRelation(r.id)}
+                            className="text-[var(--color-danger)] active:scale-90"
+                          >✕</button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="mt-3 grid grid-cols-3 gap-2">
+              <button
+                onClick={handleDeletePerson}
+                className="rounded-xl border-2 border-[var(--color-danger)]/40 py-3 text-sm font-medium text-[var(--color-danger)] active:scale-95"
+              >
+                🗑 削除
+              </button>
+              <button
+                onClick={() => {
+                  setRelationModalTarget(editPerson);
+                  setRelationModalOpen(true);
+                }}
+                className="rounded-xl border-2 border-[var(--color-warning)]/40 py-3 text-sm font-medium text-[var(--color-warning)] active:scale-95"
+              >
+                + 関係
+              </button>
+              <button
+                onClick={handleUpdatePerson}
+                className="rounded-xl bg-[var(--color-primary)] py-3 text-sm font-bold active:scale-95"
+              >
+                ✓ 更新
+              </button>
+            </div>
+          </div>
         ) : null}
       </div>
 
-      {/* Mini tree */}
-      <div className="px-4 pb-4 pt-2">
-        <MiniTree
+      {/* Family tree */}
+      <div className="px-4 pb-3">
+        <FamilyTree
           persons={tree.persons}
           relationships={tree.relationships}
-          highlightId={
-            mode === "review" ? currentReviewPerson?.id : currentEditPerson?.id
-          }
+          familyName={tree.familyName}
+          highlightId={editPersonId ?? undefined}
           onPersonTap={handleTreePersonTap}
+          compact
         />
       </div>
 
       {/* Relationship modal */}
       <RelationshipModal
         open={relationModalOpen}
-        currentPerson={currentEditPerson}
+        currentPerson={relationModalTarget}
         allPersons={tree.persons}
         existingRelationships={tree.relationships}
         onAdd={handleAddRelation}
@@ -306,7 +302,7 @@ function EditorContent() {
 
       {/* Toast */}
       {toast && (
-        <div className="fixed left-1/2 top-16 z-50 -translate-x-1/2 rounded-full bg-[var(--color-card)] px-6 py-2 text-sm font-medium shadow-lg">
+        <div className="fixed left-1/2 top-14 z-50 -translate-x-1/2 rounded-full bg-[var(--color-card)] px-5 py-2 text-sm font-medium shadow-lg">
           {toast}
         </div>
       )}
@@ -316,13 +312,7 @@ function EditorContent() {
 
 export default function EditorPage() {
   return (
-    <Suspense
-      fallback={
-        <div className="flex h-full items-center justify-center">
-          <div className="text-[var(--color-text-dim)]">読み込み中...</div>
-        </div>
-      }
-    >
+    <Suspense fallback={<div className="flex h-full items-center justify-center"><div className="text-[var(--color-text-dim)]">読み込み中...</div></div>}>
       <EditorContent />
     </Suspense>
   );

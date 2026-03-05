@@ -57,6 +57,9 @@ export default function LandingPage() {
       </div>
 
       <div className="mt-8 flex gap-6 text-sm text-[var(--color-text-dim)]">
+        <Link href="/tree" className="underline underline-offset-4">
+          🌳 家系図を表示
+        </Link>
         <Link href="/export" className="underline underline-offset-4">
           インポート / エクスポート
         </Link>

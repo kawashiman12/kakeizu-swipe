@@ -8,7 +8,7 @@ interface RelationshipModalProps {
   currentPerson: Person | null;
   allPersons: Person[];
   existingRelationships: Relationship[];
-  onAdd: (type: "parent" | "spouse", targetId: string) => void;
+  onAdd: (type: "parent" | "spouse", fromId: string, toId: string) => void;
   onClose: () => void;
 }
 
@@ -52,11 +52,12 @@ export function RelationshipModal({
             transition={{ type: "spring", damping: 25 }}
           >
             <div className="mx-auto mb-4 h-1 w-12 rounded-full bg-[var(--color-text-dim)]/50" />
-            <h3 className="mb-1 text-lg font-bold">
-              関係を追加
-            </h3>
+            <h3 className="mb-1 text-lg font-bold">関係を追加</h3>
             <p className="mb-4 text-sm text-[var(--color-text-dim)]">
-              {currentPerson.name} との関係を選択してください
+              <span className="font-bold text-[var(--color-text)]">
+                {currentPerson.name}
+              </span>{" "}
+              と誰の関係？
             </p>
 
             {candidates.length === 0 ? (
@@ -67,31 +68,46 @@ export function RelationshipModal({
               </p>
             ) : (
               <div className="max-h-64 space-y-2 overflow-y-auto">
-                {candidates.map((person) => (
+                {candidates.map((target) => (
                   <div
-                    key={person.id}
-                    className="flex items-center justify-between rounded-xl bg-[var(--color-bg)] p-3"
+                    key={target.id}
+                    className="rounded-xl bg-[var(--color-bg)] p-3"
                   >
-                    <div>
-                      <div className="font-medium">{person.name}</div>
-                      {person.birthYear && (
-                        <div className="text-xs text-[var(--color-text-dim)]">
-                          {person.birthYear}年生
-                        </div>
-                      )}
+                    <div className="mb-2 flex items-center gap-2">
+                      <span className="text-lg">👤</span>
+                      <div>
+                        <div className="font-medium">{target.name}</div>
+                        {target.birthYear && (
+                          <div className="text-xs text-[var(--color-text-dim)]">
+                            {target.birthYear}年生
+                          </div>
+                        )}
+                      </div>
                     </div>
                     <div className="flex gap-2">
                       <button
-                        onClick={() => onAdd("parent", person.id)}
-                        className="rounded-lg bg-[var(--color-primary)] px-3 py-1.5 text-sm font-medium transition-transform active:scale-95"
+                        onClick={() =>
+                          onAdd("parent", target.id, currentPerson.id)
+                        }
+                        className="flex-1 rounded-lg bg-sky-700 px-2 py-1.5 text-xs font-medium transition-transform active:scale-95"
                       >
-                        親子
+                        {target.name} が親
                       </button>
                       <button
-                        onClick={() => onAdd("spouse", person.id)}
-                        className="rounded-lg bg-[var(--color-accent)] px-3 py-1.5 text-sm font-medium transition-transform active:scale-95"
+                        onClick={() =>
+                          onAdd("parent", currentPerson.id, target.id)
+                        }
+                        className="flex-1 rounded-lg bg-emerald-700 px-2 py-1.5 text-xs font-medium transition-transform active:scale-95"
                       >
-                        配偶
+                        {target.name} が子
+                      </button>
+                      <button
+                        onClick={() =>
+                          onAdd("spouse", currentPerson.id, target.id)
+                        }
+                        className="flex-1 rounded-lg bg-[var(--color-accent)]/80 px-2 py-1.5 text-xs font-medium transition-transform active:scale-95"
+                      >
+                        💑 配偶者
                       </button>
                     </div>
                   </div>
